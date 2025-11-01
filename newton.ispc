@@ -22,6 +22,19 @@ static inline int mandel(float c_re, float c_im, int count) {
   return i;
 }
 
+static inline float fast_pow(float base, int exp) {
+  // Fast exponentiation by squaring for integer exponents
+  float result = 1.0f;
+  while (exp > 0) {
+    if (exp & 0x01) {
+      result *= base;
+    }
+    base *= base;
+    exp >>= 1;
+  }
+  return result;
+}
+
 static inline int newton_radial(float z_re, float z_im, int maxIterations,
                                 float n, float &root_re, float &root_im) {
   // Calculate Newton's method for f(z) = z^n - 1
@@ -29,9 +42,9 @@ static inline int newton_radial(float z_re, float z_im, int maxIterations,
     // Calculate z^(n-1)
     float r = sqrt(z_re * z_re + z_im * z_im);
     float theta = atan2(z_im, z_re);
-    float r_n_minus_1 = pow(r, n - 1);
+    float r_n_minus_1 = fast_pow(r, n - 1);
     float theta_n_minus_1 = (n - 1) * theta;
-    float r_n = pow(r, n);
+    float r_n = fast_pow(r, n);
     float theta_n = n * theta;
     float f_re = r_n_minus_1 * cos(theta_n_minus_1);
     float f_im = r_n_minus_1 * sin(theta_n_minus_1);

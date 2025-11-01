@@ -86,25 +86,16 @@ static void calculate_roots(float *roots_re, float *roots_im, int n) {
 
 int main(int argc, char *argv[]) {
   static unsigned int test_iterations[] = {3, 3};
-  unsigned int width = 4096;
-  unsigned int height = 4096;
-  float x0 = -1;
-  float x1 = 1;
-  float y0 = -1;
-  float y1 = 1;
-  int n = 7;
+  unsigned int width = 2048;
+  unsigned int height = 2048;
+  float x0 = -2;
+  float x1 = 2;
+  float y0 = -2;
+  float y1 = 2;
+  int n = 3;
 
   if (argc > 1) {
-    if (strncmp(argv[1], "--scale=", 8) == 0) {
-      float scale = atof(argv[1] + 8);
-      width *= scale;
-      height *= scale;
-    }
-  }
-  if ((argc == 3) || (argc == 4)) {
-    for (int i = 0; i < 2; i++) {
-      test_iterations[i] = atoi(argv[argc - 2 + i]);
-    }
+    n = atoi(argv[1]);
   }
 
   int maxIterations = 256;
