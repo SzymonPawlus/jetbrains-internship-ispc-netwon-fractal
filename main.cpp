@@ -31,6 +31,7 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <cmath>
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #define NOMINMAX
@@ -49,6 +50,11 @@ using namespace ispc;
 extern void mandelbrot_serial(float x0, float y0, float x1, float y1, int width,
                               int height, int maxIterations, int output[]);
 
+const int default_colours[16] = {0x000000, 0x0000FF, 0x00FF00, 0x00FFFF,
+                                 0xFF0000, 0xFF00FF, 0xFFFF00, 0xFFFFFF,
+                                 0xC6C6C6, 0x840000, 0x008400, 0x848400,
+                                 0x000084, 0x840084, 0x008484, 0x848484};
+
 /* Write a PPM image file with the image of the Mandelbrot set */
 static void writePPM(int *buf, int width, int height, const char *fn) {
   FILE *fp = fopen(fn, "wb");
@@ -58,22 +64,35 @@ static void writePPM(int *buf, int width, int height, const char *fn) {
   for (int i = 0; i < width * height; ++i) {
     // Map the iteration count to colors by just alternating between
     // two greys.
-    char c = (buf[i] & 0x1) ? 240 : 20;
-    for (int j = 0; j < 3; ++j)
+    int colour = default_colours[buf[i] % 16];
+
+    for (int j = 0; j < 3; ++j) {
+      unsigned char c = (unsigned char)(colour & 0xFF);
+      colour >>= 8;
       fputc(c, fp);
+    }
   }
   fclose(fp);
   printf("Wrote image file %s\n", fn);
 }
 
+static void calculate_roots(float *roots_re, float *roots_im, int n) {
+  for (int k = 0; k < n; ++k) {
+    float angle = 2.0f * 3.14159265358979323846f * float(k) / float(n);
+    roots_re[k] = cosf(angle);
+    roots_im[k] = sinf(angle);
+  }
+}
+
 int main(int argc, char *argv[]) {
   static unsigned int test_iterations[] = {3, 3};
-  unsigned int width = 768;
-  unsigned int height = 512;
-  float x0 = -2;
+  unsigned int width = 4096;
+  unsigned int height = 4096;
+  float x0 = -1;
   float x1 = 1;
   float y0 = -1;
   float y1 = 1;
+  int n = 7;
 
   if (argc > 1) {
     if (strncmp(argv[1], "--scale=", 8) == 0) {
@@ -90,6 +109,9 @@ int main(int argc, char *argv[]) {
 
   int maxIterations = 256;
   int *buf = new int[width * height];
+  float *roots_re = new float[n];
+  float *roots_im = new float[n];
+  calculate_roots(roots_re, roots_im, n);
 
   //
   // Compute the image using the ispc implementation; report the minimum
@@ -98,7 +120,8 @@ int main(int argc, char *argv[]) {
   double minISPC = 1e30;
   for (int i = 0; i < test_iterations[0]; ++i) {
     reset_and_start_timer();
-    mandelbrot_ispc(x0, y0, x1, y1, width, height, maxIterations, buf);
+    newton_ispc(width, height, x0, y0, x1, y1, maxIterations, n, roots_re,
+                roots_im, buf);
     double dt = get_elapsed_mcycles();
     printf("@time of ISPC run:\t\t\t[%.3f] million cycles\n", dt);
     minISPC = std::min(minISPC, dt);
@@ -110,24 +133,6 @@ int main(int argc, char *argv[]) {
   // Clear out the buffer
   for (unsigned int i = 0; i < width * height; ++i)
     buf[i] = 0;
-
-  //
-  // And run the serial implementation 3 times, again reporting the
-  // minimum time.
-  //
-  double minSerial = 1e30;
-  for (int i = 0; i < test_iterations[1]; ++i) {
-    reset_and_start_timer();
-    mandelbrot_serial(x0, y0, x1, y1, width, height, maxIterations, buf);
-    double dt = get_elapsed_mcycles();
-    printf("@time of serial run:\t\t\t[%.3f] million cycles\n", dt);
-    minSerial = std::min(minSerial, dt);
-  }
-
-  printf("[mandelbrot serial]:\t\t[%.3f] million cycles\n", minSerial);
-  writePPM(buf, width, height, "mandelbrot-serial.ppm");
-
-  printf("\t\t\t\t(%.2fx speedup from ISPC)\n", minSerial / minISPC);
 
   return 0;
 }

@@ -54,6 +54,7 @@ namespace ispc { /* namespace */
 extern "C" {
 #endif // __cplusplus
     extern void mandelbrot_ispc(float x0, float y0, float x1, float y1, int32_t width, int32_t height, int32_t maxIterations, int32_t * output);
+    extern void newton_ispc(int32_t width, int32_t height, float x0, float y0, float x1, float y1, int32_t maxIterations, float n, float * root_re, float * root_im, int32_t * colour);
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 } /* end extern C */
 #endif // __cplusplus
