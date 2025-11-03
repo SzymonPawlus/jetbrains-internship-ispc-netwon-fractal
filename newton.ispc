@@ -4,24 +4,6 @@
   SPDX-License-Identifier: BSD-3-Clause
 */
 
-static inline int mandel(float c_re, float c_im, int count) {
-  float z_re = c_re, z_im = c_im;
-  int i;
-  for (i = 0; i < count; ++i) {
-    if (z_re * z_re + z_im * z_im > 4.)
-      break;
-
-    float new_re = z_re * z_re - z_im * z_im;
-    float new_im = 2.f * z_re * z_im;
-    unmasked {
-      z_re = c_re + new_re;
-      z_im = c_im + new_im;
-    }
-  }
-
-  return i;
-}
-
 static inline float fast_pow(float base, int exp) {
   // Fast exponentiation by squaring for integer exponents
   float result = 1.0f;
@@ -33,6 +15,89 @@ static inline float fast_pow(float base, int exp) {
     exp >>= 1;
   }
   return result;
+}
+
+static inline void complex_pow(float &xr, float &xi, int n) {
+  float resr = 1.0f, resi = 0.0f;
+  float baser = xr, basei = xi;
+  int e = n;
+
+  while (e > 0) {
+    if (e & 1) {
+      float tr = resr * baser - resi * basei;
+      float ti = resr * basei + resi * baser;
+      resr = tr;
+      resi = ti;
+    }
+    e >>= 1;
+    if (e) {
+      float tr = baser * baser - basei * basei;
+      float ti = 2.0f * baser * basei;
+      baser = tr;
+      basei = ti;
+    }
+  }
+  xr = resr;
+  xi = resi;
+}
+
+static inline float modulus_sqr(float xr, float xi) {
+  return xr * xr + xi * xi;
+}
+
+static inline void complex_mul(float &ar, float &ai, float br, float bi) {
+  float tr = ar * br - ai * bi;
+  float ti = ar * bi + ai * br;
+  ar = tr;
+  ai = ti;
+}
+
+static inline void complex_inverse(float &xr, float &xi) {
+  float denom = modulus_sqr(xr, xi);
+  xr = xr / denom;
+  xi = -xi / denom;
+}
+
+static inline int newton_standard(float z_re, float z_im, int maxIterations,
+                                  float n, float &root_re, float &root_im) {
+  // Calculate Newton's method for f(z) = z^n - 1
+  bool inverted = false;
+
+  for (int i = 0; i < maxIterations; ++i) {
+    float f_prime_re = z_re, f_prime_im = z_im;
+    complex_pow(f_prime_re, f_prime_im, n - 1);
+    float f_re = z_re, f_im = z_im;
+    complex_mul(f_re, f_im, f_prime_re, f_prime_im);
+    f_re -= 1.0f; // f(z) = z^n - 1
+    complex_mul(f_prime_re, f_prime_im, n, 0);
+
+    // Newton's method: z = z - f(z) / f'(z)
+    float denom = modulus_sqr(f_prime_re, f_prime_im);
+    if (denom == 0.0f)
+      break;
+
+    float new_re = z_re - (f_re * f_prime_re + f_im * f_prime_im) / denom;
+    float new_im = z_im - (f_im * f_prime_re - f_re * f_prime_im) / denom;
+
+    // Check for convergence
+    float diff_re = new_re - z_re;
+    float diff_im = new_im - z_im;
+    if (diff_re * diff_re + diff_im * diff_im < 1e-6f) {
+      if (inverted) {
+
+      } else {
+        root_re = new_re;
+        root_im = new_im;
+      }
+      return i;
+    }
+
+    unmasked {
+      z_re = new_re;
+      z_im = new_im;
+    }
+  }
+  return -1;
 }
 
 static inline int newton_radial(float z_re, float z_im, int maxIterations,
@@ -82,46 +147,44 @@ static inline int newton_radial(float z_re, float z_im, int maxIterations,
   return -1;
 }
 
-export void mandelbrot_ispc(uniform float x0, uniform float y0,
-                            uniform float x1, uniform float y1,
-                            uniform int width, uniform int height,
-                            uniform int maxIterations, uniform int output[]) {
+export void newton_ispc_standard(uniform int width, uniform int height,
+                                 uniform float x0, uniform float y0,
+                                 uniform float x1, uniform float y1,
+                                 uniform int maxIterations, uniform float n,
+                                 uniform float root_re[],
+                                 uniform float root_im[],
+                                 uniform int colour[]) {
   float dx = (x1 - x0) / width;
   float dy = (y1 - y0) / height;
 
   for (uniform int j = 0; j < height; j++) {
-    // Note that we'll be doing programCount computations in parallel,
-    // so increment i by that much.  This assumes that width evenly
-    // divides programCount.
     foreach (i = 0 ... width) {
-      // Figure out the position on the complex plane to compute the
-      // number of iterations at.  Note that the x values are
-      // different across different program instances, since its
-      // initializer incorporates the value of the programIndex
-      // variable.
-      float x = x0 + i * dx;
-      float y = y0 + j * dy;
-
-      int index = j * width + i;
-      output[index] = mandel(x, y, maxIterations);
+      float z_re = x0 + i * dx;
+      float z_im = y0 + j * dy;
+      float r_re, r_im;
+      int iters = newton_standard(z_re, z_im, maxIterations, n, r_re, r_im);
+      if (iters == -1) {
+        colour[j * width + i] = 0;
+      } else {
+        for (int k = 0; k < n; k++) {
+          float diff_re = root_re[k] - r_re;
+          float diff_im = root_im[k] - r_im;
+          if (diff_re * diff_re + diff_im * diff_im < 1e-3f) {
+            colour[j * width + i] = k + 1;
+            break;
+          }
+        }
+      }
     }
   }
 }
 
-typedef struct {
-  uniform int width;
-  uniform int height;
-  uniform float x0;
-  uniform float y0;
-  uniform float x1;
-  uniform float y1;
-} size_params_t;
-
-export void newton_ispc(uniform int width, uniform int height, uniform float x0,
-                        uniform float y0, uniform float x1, uniform float y1,
-                        uniform int maxIterations, uniform float n,
-                        uniform float root_re[], uniform float root_im[],
-                        uniform int colour[]) {
+export void newton_ispc_radial(uniform int width, uniform int height,
+                               uniform float x0, uniform float y0,
+                               uniform float x1, uniform float y1,
+                               uniform int maxIterations, uniform float n,
+                               uniform float root_re[], uniform float root_im[],
+                               uniform int colour[]) {
   float dx = (x1 - x0) / width;
   float dy = (y1 - y0) / height;
 

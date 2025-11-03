@@ -1,7 +1,8 @@
 all: main
 
+
 newton.o: newton.ispc
-	ispc newton.ispc -o newton.o -h newton.h --pic
+	ispc newton.ispc -o newton.o -h newton.h --pic -g -O3
 
 main: main.cpp newton.o
-	g++ -o main newton_serial.cpp main.cpp newton.o -lm
+	g++ -o main newton_serial.cpp main.cpp newton.o -lm -g -O3
