@@ -43,8 +43,8 @@
 #include "newton.h"
 #include "timing.h"
 #include <algorithm>
-#include <cstdlib>
-#include <stdio.h>
+#include <fstream>
+
 using namespace ispc;
 
 struct HSV {
@@ -177,24 +177,88 @@ std::vector<float> calculate_iterations_distribution(unsigned int width,
   return normalized_distribution;
 }
 
-int main(int argc, char *argv[]) {
-  static unsigned int test_iterations[] = {3, 3};
-  unsigned int width = 2048;
-  unsigned int height = 2048;
-  float x0 = -2;
-  float x1 = 2;
-  float y0 = -2;
-  float y1 = 2;
-  int n = 3;
+#include <iostream>
+#include <sstream>
+#include <string>
 
-  if (argc > 1) {
-    n = atoi(argv[1]);
+// Function to get int input with default
+void inputWithDefault(int &result, int defaultValue,
+                      const std::string &prompt) {
+  std::string input;
+  std::cout << prompt << " (default " << defaultValue << "): ";
+  std::getline(std::cin, input);
+
+  if (input.empty()) {
+    result = defaultValue;
+  } else {
+    std::stringstream ss(input);
+    ss >> result;
+    if (ss.fail()) {
+      std::cout << "Invalid input, using default.\n";
+      result = defaultValue;
+    }
+  }
+}
+
+// Function to get float input with default
+void inputWithDefault(float &result, float defaultValue,
+                      const std::string &prompt) {
+  std::string input;
+  std::cout << prompt << " (default " << defaultValue << "): ";
+  std::getline(std::cin, input);
+
+  if (input.empty()) {
+    result = defaultValue;
+  } else {
+    std::stringstream ss(input);
+    ss >> result;
+    if (ss.fail()) {
+      std::cout << "Invalid input, using default.\n";
+      result = defaultValue;
+    }
+  }
+}
+
+void inputFilePath(std::string &result, const std::string &defaultPath,
+                   const std::string &prompt) {
+  std::string input;
+  std::cout << prompt << " (default \"" << defaultPath << "\"): ";
+  std::getline(std::cin, input);
+
+  if (input.empty()) {
+    result = defaultPath;
+  } else {
+    result = input;
   }
 
-  float resr, resi;
-  newton_one(0.1f, 0.1f, 100, n, resr, resi);
+  // Optional: check if file exists
+  std::fstream file(result);
+  if (!file) {
+    std::cout << "Warning: File \"" << result << "\" does not exist.\n";
+  }
+}
 
-  int maxIterations = 256;
+int main(int argc, char *argv[]) {
+  static unsigned int test_iterations[] = {3, 3};
+
+  // Parameters
+  float x0, y0, x1, y1;
+  int width, height;
+  int n, maxIterations;
+  std::string outputFile;
+
+  // Input
+  inputWithDefault(width, 2048, "Enter image width");
+  inputWithDefault(height, 2048, "Enter image height");
+  inputWithDefault(x0, -2.0f, "Enter x0 (left)");
+  inputWithDefault(y0, -2.0f, "Enter y0 (bottom)");
+  inputWithDefault(x1, 2.0f, "Enter x1 (right)");
+  inputWithDefault(y1, 2.0f, "Enter y1 (top)");
+  inputWithDefault(n, 3, "Enter degree of polynomial (n)");
+  inputWithDefault(maxIterations, 256, "Enter max iterations");
+  inputFilePath(outputFile, "newton-ispc.ppm", "Enter output file path");
+
+  // Initialize data structures
   int *buf = new int[width * height];
   int *iterations = new int[width * height];
   float *roots_re = new float[n];
@@ -202,58 +266,16 @@ int main(int argc, char *argv[]) {
   calculate_roots(roots_re, roots_im, n);
   std::vector<RGB> colours = generate_root_colours(n);
 
-  //
-  // Compute the image using the ispc implementation; report the minimum
-  // time of three runs.
-  //
-  double minISPC = 1e30;
-  for (int i = 0; i < test_iterations[0]; ++i) {
-    reset_and_start_timer();
-    newton_ispc_standard(width, height, x0, y0, x1, y1, maxIterations, n,
-                         roots_re, roots_im, buf, iterations);
-    double dt = get_elapsed_mcycles();
-    printf("@time of ISPC run:\t\t\t[%.3f] million cycles\n", dt);
-    minISPC = std::min(minISPC, dt);
-  }
+  reset_and_start_timer();
+  newton_ispc_standard(width, height, x0, y0, x1, y1, maxIterations, n,
+                       roots_re, roots_im, buf, iterations);
+  double dt = get_elapsed_mcycles();
+  printf("@time of ISPC run:\t\t\t[%.3f] million cycles\n", dt);
 
-  printf("[newon standard ispc]:\t\t[%.3f] million cycles\n", minISPC);
   std::vector<float> iteration_distribution = calculate_iterations_distribution(
       width, height, iterations, maxIterations);
-  writePPM(buf, width, height, "newton-ispc.ppm", colours, iterations,
+  writePPM(buf, width, height, outputFile.c_str(), colours, iterations,
            iteration_distribution);
-
-  // Clear out the buffer
-  for (unsigned int i = 0; i < width * height; ++i)
-    buf[i] = 0;
-
-  //
-  // Compute the image using the radial ispc implementation
-  //
-  double minISPC_radial = 1e30;
-  for (int i = 0; i < test_iterations[0]; ++i) {
-    reset_and_start_timer();
-    newton_ispc_radial(width, height, x0, y0, x1, y1, maxIterations, n,
-                       roots_re, roots_im, buf, iterations);
-    double dt = get_elapsed_mcycles();
-    printf("@time of ISPC radial run:\t[%.3f] million cycles\n", dt);
-    minISPC_radial = std::min(minISPC_radial, dt);
-  }
-  printf("[newton radial ispc]:\t\t[%.3f] million cycles\n", minISPC_radial);
-
-  //
-  // Compute the image using the serial implementation; report the minimum
-  // time of three runs.
-  //
-  double minSerial = 1e30;
-  for (int i = 0; i < test_iterations[1]; ++i) {
-    reset_and_start_timer();
-    newton_serial(width, height, x0, y0, x1, y1, maxIterations, n, roots_re,
-                  roots_im, buf);
-    double dt = get_elapsed_mcycles();
-    printf("@time of serial run:\t\t[%.3f] million cycles\n", dt);
-    minSerial = std::min(minSerial, dt);
-  }
-  printf("[newton serial]:\t\t[%.3f] million cycles\n", minSerial);
 
   return 0;
 }
