@@ -1,9 +1,3 @@
-/*
-  Copyright (c) 2010-2023, Intel Corporation
-
-  SPDX-License-Identifier: BSD-3-Clause
-*/
-
 static inline float fast_pow(float base, int exp) {
   // Fast exponentiation by squaring for integer exponents
   float result = 1.0f;
