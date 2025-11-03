@@ -4,6 +4,20 @@
   SPDX-License-Identifier: BSD-3-Clause
 */
 
+#include <iostream>
+static inline float fast_pow(float base, int exp) {
+  // Fast exponentiation by squaring for integer exponents
+  float result = 1.0f;
+  while (exp > 0) {
+    if (exp & 0x01) {
+      result *= base;
+    }
+    base *= base;
+    exp >>= 1;
+  }
+  return result;
+}
+
 static inline void complex_pow(float &xr, float &xi, int n) {
   float resr = 1.0f, resi = 0.0f;
   float baser = xr, basei = xi;
@@ -26,6 +40,68 @@ static inline void complex_pow(float &xr, float &xi, int n) {
   }
   xr = resr;
   xi = resi;
+}
+
+static inline float modulus_sqr(float xr, float xi) {
+  return xr * xr + xi * xi;
+}
+
+static inline void complex_mul(float &ar, float &ai, float br, float bi) {
+  float tr = ar * br - ai * bi;
+  float ti = ar * bi + ai * br;
+  ar = tr;
+  ai = ti;
+}
+
+static inline void complex_inverse(float &xr, float &xi) {
+  float denom = modulus_sqr(xr, xi);
+  xr = xr / denom;
+  xi = -xi / denom;
+}
+
+int newton_one(float z_re, float z_im, int maxIterations, int n, float &root_re,
+               float &root_im) {
+  // Calculate Newton's method for f(z) = z^n - 1
+  bool inverted = false;
+  float nf = static_cast<float>(n);
+
+  for (int i = 0; i < maxIterations; ++i) {
+    float new_re, new_im;
+    float f_prime_re = z_re, f_prime_im = z_im;
+    complex_pow(f_prime_re, f_prime_im, n - 1);
+    float f_re = z_re, f_im = z_im;
+    complex_mul(f_re, f_im, f_prime_re, f_prime_im);
+    f_re -= 1.0f; // f(z) = z^n - 1
+    complex_mul(f_prime_re, f_prime_im, n, 0);
+
+    // Newton's method: z = z - f(z) / f'(z)
+    float denom = modulus_sqr(f_prime_re, f_prime_im);
+    if (denom == 0.0f)
+      break;
+
+    new_re = z_re - (f_re * f_prime_re + f_im * f_prime_im) / denom;
+    new_im = z_im - (f_im * f_prime_re - f_re * f_prime_im) / denom;
+    // Check for convergence
+    float diff_re = new_re - z_re;
+    float diff_im = new_im - z_im;
+    if (diff_re * diff_re + diff_im * diff_im < 1e-6f) {
+      if (inverted) {
+
+      } else {
+        root_re = new_re;
+        root_im = new_im;
+      }
+      return i;
+    }
+
+    z_re = new_re;
+    z_im = new_im;
+    std::cout << "Iteration " << i << ": new_re = " << new_re
+              << ", new_im = " << new_im << std::endl;
+  }
+  std::cout << "Did not converge: new_re = " << z_re << ", new_im = " << z_im
+            << std::endl;
+  return -1;
 }
 
 void newton_serial(int width, int height, float x0, float y0, float x1,

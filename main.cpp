@@ -45,7 +45,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <stdio.h>
-#include <string.h>
 using namespace ispc;
 
 struct HSV {
@@ -63,7 +62,7 @@ struct RGB {
 
   RGB(HSV &hsv) {
     double c = hsv.v * hsv.s;
-    double x = c * (1 - std::fabs(std::fmod(hsv.h * 6, 2)));
+    double x = c * (1 - std::fabs(std::fmod(hsv.h * 6, 2) - 1));
     double m = hsv.v - c;
     if (hsv.h < 1.0 / 6) {
       r = c;
@@ -97,10 +96,10 @@ struct RGB {
 
   RGB operator*(float s) { return {r * s, g * s, b * s}; }
 
-  void print(FILE *fp) {
-    unsigned char r_c = static_cast<unsigned char>(r * 255);
-    unsigned char g_c = static_cast<unsigned char>(g * 255);
-    unsigned char b_c = static_cast<unsigned char>(b * 255);
+  void draw(FILE *fp) {
+    unsigned char r_c = std::floor(r * 255);
+    unsigned char g_c = std::floor(g * 255);
+    unsigned char b_c = std::floor(b * 255);
 
     fputc(r_c, fp);
     fputc(g_c, fp);
@@ -108,20 +107,26 @@ struct RGB {
   }
 };
 
+extern int newton_one(float z_re, float z_im, int maxIterations, int n,
+                      float &root_re, float &root_im);
 extern void newton_serial(int width, int height, float x0, float y0, float x1,
                           float y1, int maxIterations, float n, float root_re[],
                           float root_im[], int colour[]);
 
 /* Write a PPM image file with the image of the Mandelbrot set */
-static void writePPM(int *buf, int width, int height, const char *fn,
-                     std::vector<RGB> &root_colours) {
-  int maxIterations = *std::max_element(buf, buf + width * height);
+static void writePPM(int *pixel_colours, int width, int height, const char *fn,
+                     std::vector<RGB> &root_colours, const int *iterations,
+                     const std::vector<float> &distribution) {
+  int max_iterations =
+      *std::max_element(iterations, iterations + width * height);
   FILE *fp = fopen(fn, "wb");
   fprintf(fp, "P6\n");
   fprintf(fp, "%d %d\n", width, height);
   fprintf(fp, "255\n");
   for (int i = 0; i < width * height; ++i) {
-    root_colours[buf[i]].print(fp);
+    RGB rgb = root_colours[pixel_colours[i]] *
+              (0.9f * distribution[iterations[i]] + 0.1f);
+    rgb.draw(fp);
   }
   fclose(fp);
   printf("Wrote image file %s\n", fn);
@@ -138,14 +143,38 @@ static void calculate_roots(float *roots_re, float *roots_im, int n) {
 static std::vector<RGB> generate_root_colours(int n) {
   std::vector<RGB> colours;
   colours.emplace_back(0, 0, 0);
+  // int step = n % 2 ? n / 2 : n / 2 + 1; // Not always coprime
   int step = 1;
 
   for (int i = 0; i < n; ++i) {
-    float hue = std::fmod(i * step, n) / float(n);
+    float hue = (i * step % n) / float(n);
     HSV hsv = {hue, 1.0, 1.0};
     colours.emplace_back(hsv);
   }
   return colours;
+}
+
+std::vector<float> calculate_iterations_distribution(unsigned int width,
+                                                     unsigned int height,
+                                                     int iterations[],
+                                                     int max_iterations) {
+
+  std::vector<int> distribution(max_iterations + 1, 0);
+  int iterations_converged = 0;
+  for (unsigned int i = 0; i < width * height; ++i) {
+    if (iterations[i] < 0)
+      continue;
+    distribution[iterations[i]]++;
+    iterations_converged++;
+  }
+  std::vector<float> normalized_distribution(max_iterations + 1, 0.0f);
+  float total_colour = 1.0f;
+  for (int i = 0; i <= max_iterations; ++i) {
+    normalized_distribution[i] = total_colour;
+    total_colour -= static_cast<float>(distribution[i]) /
+                    static_cast<float>(iterations_converged);
+  }
+  return normalized_distribution;
 }
 
 int main(int argc, char *argv[]) {
@@ -162,8 +191,12 @@ int main(int argc, char *argv[]) {
     n = atoi(argv[1]);
   }
 
+  float resr, resi;
+  newton_one(0.1f, 0.1f, 100, n, resr, resi);
+
   int maxIterations = 256;
   int *buf = new int[width * height];
+  int *iterations = new int[width * height];
   float *roots_re = new float[n];
   float *roots_im = new float[n];
   calculate_roots(roots_re, roots_im, n);
@@ -177,14 +210,17 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < test_iterations[0]; ++i) {
     reset_and_start_timer();
     newton_ispc_standard(width, height, x0, y0, x1, y1, maxIterations, n,
-                         roots_re, roots_im, buf);
+                         roots_re, roots_im, buf, iterations);
     double dt = get_elapsed_mcycles();
     printf("@time of ISPC run:\t\t\t[%.3f] million cycles\n", dt);
     minISPC = std::min(minISPC, dt);
   }
 
   printf("[newon standard ispc]:\t\t[%.3f] million cycles\n", minISPC);
-  writePPM(buf, width, height, "newton-ispc.ppm", colours);
+  std::vector<float> iteration_distribution = calculate_iterations_distribution(
+      width, height, iterations, maxIterations);
+  writePPM(buf, width, height, "newton-ispc.ppm", colours, iterations,
+           iteration_distribution);
 
   // Clear out the buffer
   for (unsigned int i = 0; i < width * height; ++i)
@@ -197,7 +233,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < test_iterations[0]; ++i) {
     reset_and_start_timer();
     newton_ispc_radial(width, height, x0, y0, x1, y1, maxIterations, n,
-                       roots_re, roots_im, buf);
+                       roots_re, roots_im, buf, iterations);
     double dt = get_elapsed_mcycles();
     printf("@time of ISPC radial run:\t[%.3f] million cycles\n", dt);
     minISPC_radial = std::min(minISPC_radial, dt);

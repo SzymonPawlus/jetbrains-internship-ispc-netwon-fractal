@@ -53,8 +53,8 @@ namespace ispc { /* namespace */
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 extern "C" {
 #endif // __cplusplus
-    extern void newton_ispc_radial(int32_t width, int32_t height, float x0, float y0, float x1, float y1, int32_t maxIterations, float n, float * root_re, float * root_im, int32_t * colour);
-    extern void newton_ispc_standard(int32_t width, int32_t height, float x0, float y0, float x1, float y1, int32_t maxIterations, float n, float * root_re, float * root_im, int32_t * colour);
+    extern void newton_ispc_radial(int32_t width, int32_t height, float x0, float y0, float x1, float y1, int32_t maxIterations, int32_t n, float * root_re, float * root_im, int32_t * colour, int32_t * iterations);
+    extern void newton_ispc_standard(int32_t width, int32_t height, float x0, float y0, float x1, float y1, int32_t maxIterations, int32_t n, float * root_re, float * root_im, int32_t * colour, int32_t * iterations);
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 } /* end extern C */
 #endif // __cplusplus

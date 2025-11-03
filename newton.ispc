@@ -59,36 +59,38 @@ static inline void complex_inverse(float &xr, float &xi) {
 }
 
 static inline int newton_standard(float z_re, float z_im, int maxIterations,
-                                  float n, float &root_re, float &root_im) {
+                                  int n, float &root_re, float &root_im) {
   // Calculate Newton's method for f(z) = z^n - 1
-  bool inverted = false;
+  float nf = (float)n;
 
   for (int i = 0; i < maxIterations; ++i) {
-    float f_prime_re = z_re, f_prime_im = z_im;
-    complex_pow(f_prime_re, f_prime_im, n - 1);
-    float f_re = z_re, f_im = z_im;
-    complex_mul(f_re, f_im, f_prime_re, f_prime_im);
-    f_re -= 1.0f; // f(z) = z^n - 1
-    complex_mul(f_prime_re, f_prime_im, n, 0);
+    float new_re, new_im;
+    // Heuristic to avoid NaNs for bigger |z|
+    if (modulus_sqr(z_re, z_im) > pow(2.0f, 76.f / nf)) {
+      new_re = z_re * (nf - 1.f) / nf;
+      new_im = z_im * (nf - 1.f) / nf;
+    } else {
+      float f_prime_re = z_re, f_prime_im = z_im;
+      complex_pow(f_prime_re, f_prime_im, n - 1);
+      float f_re = z_re, f_im = z_im;
+      complex_mul(f_re, f_im, f_prime_re, f_prime_im);
+      f_re -= 1.0f; // f(z) = z^n - 1
+      complex_mul(f_prime_re, f_prime_im, n, 0);
 
-    // Newton's method: z = z - f(z) / f'(z)
-    float denom = modulus_sqr(f_prime_re, f_prime_im);
-    if (denom == 0.0f)
-      break;
+      // Newton's method: z = z - f(z) / f'(z)
+      float denom = modulus_sqr(f_prime_re, f_prime_im);
+      if (denom == 0.0f)
+        break;
 
-    float new_re = z_re - (f_re * f_prime_re + f_im * f_prime_im) / denom;
-    float new_im = z_im - (f_im * f_prime_re - f_re * f_prime_im) / denom;
-
+      new_re = z_re - (f_re * f_prime_re + f_im * f_prime_im) / denom;
+      new_im = z_im - (f_im * f_prime_re - f_re * f_prime_im) / denom;
+    }
     // Check for convergence
     float diff_re = new_re - z_re;
     float diff_im = new_im - z_im;
-    if (diff_re * diff_re + diff_im * diff_im < 1e-6f) {
-      if (inverted) {
-
-      } else {
-        root_re = new_re;
-        root_im = new_im;
-      }
+    if (diff_re * diff_re + diff_im * diff_im < 1e-10f) {
+      root_re = new_re;
+      root_im = new_im;
       return i;
     }
 
@@ -150,10 +152,10 @@ static inline int newton_radial(float z_re, float z_im, int maxIterations,
 export void newton_ispc_standard(uniform int width, uniform int height,
                                  uniform float x0, uniform float y0,
                                  uniform float x1, uniform float y1,
-                                 uniform int maxIterations, uniform float n,
+                                 uniform int maxIterations, uniform int n,
                                  uniform float root_re[],
-                                 uniform float root_im[],
-                                 uniform int colour[]) {
+                                 uniform float root_im[], uniform int colour[],
+                                 uniform int iterations[]) {
   float dx = (x1 - x0) / width;
   float dy = (y1 - y0) / height;
 
@@ -163,6 +165,7 @@ export void newton_ispc_standard(uniform int width, uniform int height,
       float z_im = y0 + j * dy;
       float r_re, r_im;
       int iters = newton_standard(z_re, z_im, maxIterations, n, r_re, r_im);
+      iterations[j * width + i] = iters;
       if (iters == -1) {
         colour[j * width + i] = 0;
       } else {
@@ -182,9 +185,9 @@ export void newton_ispc_standard(uniform int width, uniform int height,
 export void newton_ispc_radial(uniform int width, uniform int height,
                                uniform float x0, uniform float y0,
                                uniform float x1, uniform float y1,
-                               uniform int maxIterations, uniform float n,
+                               uniform int maxIterations, uniform int n,
                                uniform float root_re[], uniform float root_im[],
-                               uniform int colour[]) {
+                               uniform int colour[], uniform int iterations[]) {
   float dx = (x1 - x0) / width;
   float dy = (y1 - y0) / height;
 
@@ -194,6 +197,7 @@ export void newton_ispc_radial(uniform int width, uniform int height,
       float z_im = y0 + j * dy;
       float r_re, r_im;
       int iters = newton_radial(z_re, z_im, maxIterations, n, r_re, r_im);
+      iterations[j * width + i] = iters;
       if (iters == -1) {
         colour[j * width + i] = 0;
       } else {
